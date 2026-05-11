@@ -195,6 +195,14 @@ const server = http.createServer(async (req, res) => {
       return sendText(res, 200, pageHtml(), 'text/html');
     }
 
+    if (method === 'GET' && pathname === '/api/device/health') {
+      return sendText(res, 200, state.lastHealth || 'No health yet', 'text/plain');
+    }
+
+    if (method === 'GET' && pathname === '/healthz') {
+      return sendText(res, 200, 'ok', 'text/plain');
+    }
+
     if (method === 'GET' && pathname === '/api/device/command') {
       const deviceId = parsed.query.device_id;
       if (deviceId !== DEVICE_ID) return sendText(res, 400, 'invalid device_id');
@@ -311,6 +319,10 @@ Pending Command: ${state.pendingCommand || 'None'}`;
         clearInterval(frameInterval);
       });
       return;
+    }
+
+    if (method === 'GET' && !pathname.startsWith('/api/')) {
+      return sendText(res, 200, pageHtml(), 'text/html');
     }
 
     return notFound(res);
