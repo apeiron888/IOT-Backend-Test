@@ -212,19 +212,24 @@ const server = http.createServer(async (req, res) => {
       return sendText(res, 200, 'ok', 'text/plain');
     }
 
+    if (method === 'GET' && pathname === '/test-device-connect') {
+      log('ESP32 test connection successful');
+      return sendJson(res, 200, { ok: true, message: 'ESP32 can reach backend' });
+    }
+
     if (method === 'GET' && pathname === '/api/device/command') {
       const deviceId = parsed.query.device_id;
       if (deviceId !== DEVICE_ID) return sendText(res, 400, 'invalid device_id');
       
       if (!state.deviceConnected) {
         state.deviceConnected = true;
-        log('Device connected');
+        log('✅ Device CONNECTED - polling for commands');
       }
       state.lastPoll = new Date().toISOString();
       
       const cmd = state.pendingCommand || 'NONE';
       if (cmd !== 'NONE') {
-        log(`Sending command to device: ${cmd}`);
+        log(`📤 Sending command to device: ${cmd}`);
       }
       state.pendingCommand = null;
       return sendText(res, 200, cmd);
