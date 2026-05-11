@@ -76,7 +76,11 @@ function readBody(req) {
   });
 }
 
-function pageHtml() {
+function pageHtml(req) {
+  const protocol = req.headers['x-forwarded-proto'] || 'http';
+  const host = req.headers['x-forwarded-host'] || req.headers['host'] || 'localhost';
+  const backendUrl = `${protocol}://${host}`;
+  
   return `<!doctype html>
 <html>
 <head>
@@ -96,11 +100,16 @@ function pageHtml() {
     img { width: 100%; max-width: 640px; border-radius: 10px; background: #ddd; }
     input { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid #ccc; margin: 6px 0; }
     .muted { color: #666; font-size: 14px; }
+    .backend-url { background: #e3f2fd; padding: 12px; border-radius: 8px; margin: 10px 0; }
   </style>
 </head>
 <body>
   <h1>ESP32 Exam Dashboard</h1>
-  <p class="muted">Device: <b>${DEVICE_ID}</b> | Backend: <b>http://localhost:${PORT}</b></p>
+  <p class="muted">Device: <b>${DEVICE_ID}</b></p>
+  <div class="backend-url">
+    <p class="muted"><b>Backend URL for ESP32:</b><br/><code>${backendUrl}</code></p>
+    <p class="muted" style="font-size: 12px;">Update your ESP32 sketch: set <code>BACKEND_HOST</code> to this domain</p>
+  </div>
 
   <div class="row">
     <div class="card">
@@ -192,7 +201,7 @@ const server = http.createServer(async (req, res) => {
 
   try {
     if (method === 'GET' && pathname === '/') {
-      return sendText(res, 200, pageHtml(), 'text/html');
+      return sendText(res, 200, pageHtml(req), 'text/html');
     }
 
     if (method === 'GET' && pathname === '/api/device/health') {
@@ -322,7 +331,7 @@ Pending Command: ${state.pendingCommand || 'None'}`;
     }
 
     if (method === 'GET' && !pathname.startsWith('/api/')) {
-      return sendText(res, 200, pageHtml(), 'text/html');
+      return sendText(res, 200, pageHtml(req), 'text/html');
     }
 
     return notFound(res);
@@ -333,5 +342,5 @@ Pending Command: ${state.pendingCommand || 'None'}`;
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  console.log("Running on all interfaces");
+  console.log(`Server running on port ${PORT}`);
 });
