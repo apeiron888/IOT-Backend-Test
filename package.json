@@ -1,0 +1,19 @@
+{
+  "name": "iot-backend-test",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apeiron888/IOT-Backend-Test.git"
+  },
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/apeiron888/IOT-Backend-Test/issues"
+  },
+  "homepage": "https://github.com/apeiron888/IOT-Backend-Test#readme"
+}
