@@ -26,7 +26,7 @@ const url = require('url');
 const fs = require('fs');
 const path = require('path');
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 const DEVICE_ID = 'examcam-001';
 const DEVICE_TOKEN = 'CHANGE_THIS_TOKEN';
 
