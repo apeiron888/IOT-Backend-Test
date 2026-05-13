@@ -9,12 +9,17 @@
  * - Frame streaming relay
  * - Proper IoT protocols and best practices
  *
- * Run:
- *   npm install express cors dotenv
+ * Local Run:
  *   node index.js
+ *   Open: http://localhost:3000
  *
- * Open:
- *   http://localhost:3000
+ * Render Cloud Deployment:
+ *   Set environment variables on Render dashboard:
+ *   - PORT (auto-assigned by Render)
+ *   - DEVICE_ID (default: examcam-001)
+ *   - DEVICE_TOKEN (change this!)
+ *   - NODE_ENV (set to 'production')
+ *   Backend URL: https://your-service.onrender.com
  *
  * API Endpoints:
  *   GET  /health - Backend health check
@@ -32,9 +37,16 @@ const url = require('url');
 const fs = require('fs');
 const path = require('path');
 
+// ===== CONFIGURATION FROM ENVIRONMENT =====
+// These can be set via .env file (locally) or Render environment variables
 const PORT = process.env.PORT || 3000;
-const DEVICE_ID = 'examcam-001';
-const DEVICE_TOKEN = 'CHANGE_THIS_TOKEN';
+const DEVICE_ID = process.env.DEVICE_ID || 'examcam-001';
+const DEVICE_TOKEN = process.env.DEVICE_TOKEN || 'CHANGE_THIS_TOKEN';
+const ALLOWED_ORIGINS = process.env.ALLOWED_ORIGINS ? 
+  process.env.ALLOWED_ORIGINS.split(',').map(o => o.trim()) : 
+  ['*']; // '*' for localhost, specify domains for production
+const ENV = process.env.NODE_ENV || 'development';
+const IS_PRODUCTION = ENV === 'production';
 
 // IoT Device State
 const state = {
@@ -79,10 +91,13 @@ function error(msg) { log('ERROR', msg); }
 // =========================
 function sendJson(res, code, obj, headers = {}) {
   const body = JSON.stringify(obj);
+  const origin = ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS[0];
   res.writeHead(code, {
     'Content-Type': 'application/json',
     'Content-Length': Buffer.byteLength(body),
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Cache-Control': 'no-store, no-cache',
     'X-Timestamp': new Date().toISOString(),
     ...headers
   });
@@ -90,10 +105,13 @@ function sendJson(res, code, obj, headers = {}) {
 }
 
 function sendText(res, code, text, contentType = 'text/plain', headers = {}) {
+  const origin = ALLOWED_ORIGINS.includes('*') ? '*' : ALLOWED_ORIGINS[0];
   res.writeHead(code, {
     'Content-Type': contentType,
     'Content-Length': Buffer.byteLength(text),
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Credentials': 'true',
+    'Cache-Control': 'no-store, no-cache',
     'X-Timestamp': new Date().toISOString(),
     ...headers
   });
@@ -541,5 +559,23 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, "0.0.0.0", () => {
-  info(`Backend service listening on port ${PORT}`);
+  info(`===================================`);
+  info(`IoT Backend Service Starting`);
+  info(`===================================`);
+  info(`Environment: ${ENV}`);
+  info(`Port: ${PORT}`);
+  info(`Device ID: ${DEVICE_ID}`);
+  info(`Token: ${DEVICE_TOKEN.substring(0, 8)}...`);
+  info(`Allowed Origins: ${ALLOWED_ORIGINS.join(', ')}`);
+  info(`===================================`);
+  
+  if (IS_PRODUCTION) {
+    info(`🚀 PRODUCTION MODE - Running on Render`);
+    info(`Backend URL: https://your-service.onrender.com`);
+  } else {
+    info(`🔧 DEVELOPMENT MODE`);
+    info(`Local access: http://localhost:${PORT}`);
+  }
+  
+  info(`===================================`);
 });
