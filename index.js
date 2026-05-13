@@ -276,6 +276,17 @@ function getPageHtml(req) {
         <button class="btn-green" onclick="sendStartTest()">/start_test</button>
         <button class="btn-red" onclick="sendCommand('/abort')">/abort</button>
         <button class="btn-gray" onclick="sendCommand('/end_test')">/end_test</button>
+        <button class="btn-blue" onclick="openLiveStream()" style="margin-top: 10px;">Open Live Stream</button>
+      </div>
+    </div>
+
+    <div class="row full">
+      <div class="card">
+        <h2>Live Stream</h2>
+        <p class="info">This shows the backend MJPEG relay from <code>/api/device/stream</code>.</p>
+        <div style="background:#111; border-radius:8px; padding:8px; overflow:auto; text-align:center;">
+          <img id="live-stream" src="/api/device/stream" alt="Live stream" style="max-width:100%; width:100%; border-radius:6px; display:block;" />
+        </div>
       </div>
     </div>
 
@@ -325,6 +336,10 @@ function getPageHtml(req) {
       const data = await res.json();
       alert(JSON.stringify(data, null, 2));
       refresh();
+    }
+
+    function openLiveStream() {
+      window.open('/api/device/stream', '_blank', 'noopener,noreferrer');
     }
 
     async function refresh() {
