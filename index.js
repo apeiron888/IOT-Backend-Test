@@ -666,27 +666,27 @@ function sendWebSocketFrame(ws, data, opcode = 0x82) {  // 0x82 = binary frame
   if (!ws || ws.destroyed) return;
   
   try {
-    let frame = Buffer.alloc(2);
-    frame[0] = opcode;  // Binary frame
-    
     let payloadLen = data.length;
+    let header;
+    
+    // RFC 6455: Server frames are NEVER masked (mask bit = 0)
     if (payloadLen < 126) {
-      frame[1] = payloadLen | 0x80;  // Mask bit set
-      frame = Buffer.concat([frame, Buffer.alloc(4), data]);  // 4-byte mask key
+      header = Buffer.alloc(2);
+      header[0] = opcode;
+      header[1] = payloadLen;  // NO mask bit for server
     } else if (payloadLen < 65536) {
-      let header = Buffer.alloc(4);
+      header = Buffer.alloc(4);
       header[0] = opcode;
-      header[1] = 126 | 0x80;  // Mask bit set
+      header[1] = 126;  // Extended 16-bit length, NO mask bit
       header.writeUInt16BE(payloadLen, 2);
-      frame = Buffer.concat([header, Buffer.alloc(4), data]);
     } else {
-      let header = Buffer.alloc(10);
+      header = Buffer.alloc(10);
       header[0] = opcode;
-      header[1] = 127 | 0x80;  // Mask bit set
+      header[1] = 127;  // Extended 64-bit length, NO mask bit
       header.writeBigUInt64BE(BigInt(payloadLen), 2);
-      frame = Buffer.concat([header, Buffer.alloc(4), data]);
     }
     
+    const frame = Buffer.concat([header, data]);
     ws.write(frame);
   } catch (err) {
     // WebSocket closed or error
