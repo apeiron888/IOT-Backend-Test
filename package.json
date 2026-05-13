@@ -1,20 +1,33 @@
 {
   "name": "iot-backend-test",
   "version": "1.0.0",
-  "description": "",
+  "description": "Backend for ESP32-CAM exam monitoring system",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "node index.js"
   },
+  "keywords": [
+    "iot",
+    "esp32",
+    "monitoring",
+    "streaming",
+    "camera",
+    "mjpeg"
+  ],
+  "author": "Exam Monitor Team",
+  "license": "ISC",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/apeiron888/IOT-Backend-Test.git"
   },
-  "author": "",
-  "license": "ISC",
   "bugs": {
     "url": "https://github.com/apeiron888/IOT-Backend-Test/issues"
   },
-  "homepage": "https://github.com/apeiron888/IOT-Backend-Test#readme"
+  "homepage": "https://github.com/apeiron888/IOT-Backend-Test#readme",
+  "engines": {
+    "node": ">=14.0.0"
+  },
+  "devDependencies": {}
 }
