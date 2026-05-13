@@ -6,7 +6,8 @@
  * - REST endpoints for device management
  * - Command dispatching and polling
  * - Health monitoring and event tracking
- * - Frame streaming relay
+ * - Real-time WebSocket frame streaming (low-latency, efficient)
+ * - Legacy MJPEG stream relay for compatibility
  * - Proper IoT protocols and best practices
  *
  * Local Run:
@@ -29,13 +30,15 @@
  *   POST /api/device/health - Receive device health report
  *   POST /api/device/event - Receive device event
  *   POST /api/device/frame - Receive JPEG frame
- *   GET  /api/device/stream - MJPEG stream relay
+ *   GET  /api/device/stream - MJPEG stream relay (deprecated, use WebSocket)
+ *   WS   /api/device/stream-ws - WebSocket real-time frame stream
  */
 
 const http = require('http');
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 
 // ===== CONFIGURATION FROM ENVIRONMENT =====
 // These can be set via .env file (locally) or Render environment variables
@@ -60,6 +63,9 @@ const state = {
   
   // Connection tracking
   deviceConnections: new Map(), // device_id -> { connected, lastPoll, firstSeen }
+  
+  // WebSocket streaming clients
+  streamClients: new Map(),    // device_id -> Set of { ws, lastFrameTime }
   
   // System logs
   logs: [],
@@ -282,8 +288,19 @@ function getPageHtml(req) {
 
     <div class="row full">
       <div class="card">
-        <h2>Live Stream</h2>
-        <p class="info">This shows the backend MJPEG relay from <code>/api/device/stream</code>.</p>
+        <h2>Live Stream (WebSocket - Real-time)</h2>
+        <p class="info">Low-latency real-time streaming via WebSocket. Shows live camera feed as frames arrive.</p>
+        <div style="background:#111; border-radius:8px; padding:8px; overflow:auto; text-align:center;">
+          <canvas id="live-stream-ws" width="640" height="480" style="max-width:100%; width:100%; border-radius:6px; display:block; background:#000;"></canvas>
+          <p id="stream-status" style="margin-top:8px; color:#aaa; font-size:12px;">Connecting...</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="row full">
+      <div class="card">
+        <h2>Legacy MJPEG Stream (HTTP Fallback)</h2>
+        <p class="info">Fallback HTTP MJPEG stream from <code>/api/device/stream</code>. Use if WebSocket is blocked.</p>
         <div style="background:#111; border-radius:8px; padding:8px; overflow:auto; text-align:center;">
           <img id="live-stream" src="/api/device/stream" alt="Live stream" style="max-width:100%; width:100%; border-radius:6px; display:block;" />
         </div>
@@ -342,6 +359,70 @@ function getPageHtml(req) {
       window.open('/api/device/stream', '_blank', 'noopener,noreferrer');
     }
 
+    // ===== WEBSOCKET STREAMING =====
+    let wsStream = null;
+    let frameCount = 0;
+    let lastFrameTime = 0;
+
+    function connectWebSocketStream() {
+      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = \`\${protocol}//\${window.location.host}/api/device/stream-ws?device_id=\${DEVICE_ID}\`;
+      
+      wsStream = new WebSocket(wsUrl);
+      wsStream.binaryType = 'arraybuffer';
+      
+      wsStream.onopen = () => {
+        console.log('WebSocket stream connected');
+        updateStreamStatus('Connected - waiting for frames...');
+      };
+      
+      wsStream.onmessage = (event) => {
+        const data = new Uint8Array(event.data);
+        if (data.length < 2) return;
+        
+        const frameType = data[0];  // 0 = JPEG frame
+        const frameData = data.slice(1);
+        
+        if (frameType === 0 && frameData.length > 0) {
+          // Display JPEG frame
+          const blob = new Blob([frameData], { type: 'image/jpeg' });
+          const url = URL.createObjectURL(blob);
+          const canvas = document.getElementById('live-stream-ws');
+          if (canvas) {
+            const img = new Image();
+            img.onload = () => {
+              const ctx = canvas.getContext('2d');
+              ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+              URL.revokeObjectURL(url);
+              frameCount++;
+              lastFrameTime = Date.now();
+              updateStreamStatus(\`Connected - \${frameCount} frames received\`);
+            };
+            img.src = url;
+          }
+        }
+      };
+      
+      wsStream.onerror = (err) => {
+        console.error('WebSocket stream error:', err);
+        updateStreamStatus('Error - attempting to reconnect...');
+      };
+      
+      wsStream.onclose = () => {
+        console.log('WebSocket stream closed');
+        updateStreamStatus('Disconnected - retrying in 2s...');
+        setTimeout(connectWebSocketStream, 2000);
+      };
+    }
+
+    function updateStreamStatus(msg) {
+      const status = document.getElementById('stream-status');
+      if (status) status.textContent = msg;
+    }
+
+    // Connect WebSocket stream on page load
+    setTimeout(connectWebSocketStream, 500);
+
     async function refresh() {
       // Device status
       const statusRes = await fetch('/api/status').then(r => r.json());
@@ -368,6 +449,60 @@ function getPageHtml(req) {
   </script>
 </body>
 </html>`;
+}
+
+// =========================
+// WEBSOCKET FRAME STREAMING
+// =========================
+function createWebSocketKey(key) {
+  const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
+  return crypto.createHash('sha1').update(key + GUID).digest('base64');
+}
+
+function sendWebSocketFrame(ws, data, opcode = 0x82) {  // 0x82 = binary frame
+  if (!ws || ws.destroyed) return;
+  
+  try {
+    let frame = Buffer.alloc(2);
+    frame[0] = opcode;  // Binary frame
+    
+    let payloadLen = data.length;
+    if (payloadLen < 126) {
+      frame[1] = payloadLen | 0x80;  // Mask bit set
+      frame = Buffer.concat([frame, Buffer.alloc(4), data]);  // 4-byte mask key
+    } else if (payloadLen < 65536) {
+      let header = Buffer.alloc(4);
+      header[0] = opcode;
+      header[1] = 126 | 0x80;  // Mask bit set
+      header.writeUInt16BE(payloadLen, 2);
+      frame = Buffer.concat([header, Buffer.alloc(4), data]);
+    } else {
+      let header = Buffer.alloc(10);
+      header[0] = opcode;
+      header[1] = 127 | 0x80;  // Mask bit set
+      header.writeBigUInt64BE(BigInt(payloadLen), 2);
+      frame = Buffer.concat([header, Buffer.alloc(4), data]);
+    }
+    
+    ws.write(frame);
+  } catch (err) {
+    // WebSocket closed or error
+  }
+}
+
+function broadcastFrameToClients(deviceId, frameBuffer) {
+  const clients = state.streamClients.get(deviceId);
+  if (!clients || clients.size === 0) return;
+  
+  // Send frame to all connected WebSocket clients
+  const frameMsg = Buffer.concat([
+    Buffer.from([0]), // Frame type marker (0 = JPEG frame)
+    frameBuffer
+  ]);
+  
+  for (const client of clients) {
+    sendWebSocketFrame(client.ws, frameMsg);
+  }
 }
 
 // =========================
@@ -514,7 +649,10 @@ const server = http.createServer(async (req, res) => {
       initDeviceIfNeeded(deviceId);
       state.deviceFrames.set(deviceId, buf);
       
-      info(`Frame received from ${deviceId}: ${buf.length} bytes`);
+      // Broadcast frame to all WebSocket clients in real-time
+      broadcastFrameToClients(deviceId, buf);
+      
+      info(`Frame received from ${deviceId}: ${buf.length} bytes, ${state.streamClients.get(deviceId)?.size || 0} WebSocket clients`);
       return sendJson(res, 200, { ok: true, bytes: buf.length });
     }
 
@@ -570,6 +708,76 @@ const server = http.createServer(async (req, res) => {
   } catch (err) {
     error(`Request error: ${err.message}`);
     return sendJson(res, 500, { ok: false, error: err.message });
+  }
+});
+
+// =========================
+// WEBSOCKET UPGRADE HANDLER
+// =========================
+server.on('upgrade', (req, socket, head) => {
+  const parsedUrl = url.parse(req.url, true);
+  const pathname = parsedUrl.pathname;
+  const query = parsedUrl.query;
+
+  // WebSocket frame stream endpoint
+  if (pathname === '/api/device/stream-ws') {
+    const deviceId = query.device_id || DEVICE_ID;
+    
+    // Verify device token if provided
+    const token = req.headers['x-device-token'] || query.token;
+    if (token && token !== DEVICE_TOKEN) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    // Perform WebSocket handshake
+    const key = req.headers['sec-websocket-key'];
+    const responseKey = createWebSocketKey(key);
+    
+    const responseHeaders = [
+      'HTTP/1.1 101 Switching Protocols',
+      'Upgrade: websocket',
+      'Connection: Upgrade',
+      'Sec-WebSocket-Accept: ' + responseKey
+    ].join('\r\n') + '\r\n\r\n';
+    
+    socket.write(responseHeaders);
+    
+    // Track WebSocket client
+    initDeviceIfNeeded(deviceId);
+    if (!state.streamClients.has(deviceId)) {
+      state.streamClients.set(deviceId, new Set());
+    }
+    
+    const wsClient = { ws: socket, deviceId, lastFrameTime: 0 };
+    state.streamClients.get(deviceId).add(wsClient);
+    
+    info(`WebSocket client connected for ${deviceId}. Active clients: ${state.streamClients.get(deviceId).size}`);
+    
+    // Send latest frame if available
+    const latestFrame = state.deviceFrames.get(deviceId);
+    if (latestFrame) {
+      broadcastFrameToClients(deviceId, latestFrame);
+    }
+    
+    // Handle socket close
+    socket.on('close', () => {
+      const clients = state.streamClients.get(deviceId);
+      if (clients) {
+        clients.delete(wsClient);
+        info(`WebSocket client disconnected from ${deviceId}. Active clients: ${clients.size}`);
+      }
+    });
+    
+    socket.on('error', (err) => {
+      warn(`WebSocket error for ${deviceId}: ${err.message}`);
+      const clients = state.streamClients.get(deviceId);
+      if (clients) clients.delete(wsClient);
+    });
+  } else {
+    socket.write('HTTP/1.1 404 Not Found\r\n\r\n');
+    socket.destroy();
   }
 });
 
